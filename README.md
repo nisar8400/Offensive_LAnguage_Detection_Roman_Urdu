@@ -26,4 +26,4 @@ Dependencies
 •	gensim
 •	matplotlib
 •	texttable
-This consolidated code and report provide an end-to-end pipeline for training and evaluating models on Roman Urdu datasets. Let me know if you need further modifications!
+This consolidated code and report provide an end-to-end pipeline for training and evaluating models on Roman Urdu datasets.
