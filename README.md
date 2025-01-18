@@ -1,4 +1,4 @@
-# Offensive_LAnguage_Detection_Roman_Urdu
+# Offensive_Language_Detection_Roman_Urdu
 
 Roman Urdu Offensive Language Detection
 Description
