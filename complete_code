@@ -1,0 +1,130 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import GaussianNB
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import classification_report, accuracy_score
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, Conv1D, MaxPooling1D, Flatten, Dense, Dropout, LSTM, Bidirectional
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from gensim.models import KeyedVectors
+import matplotlib.pyplot as plt
+import texttable as tt
+
+# Load dataset
+data = pd.read_csv('dataset.csv')
+data = data[data['rating'].isin(['Offensive', 'Not Offensive'])]
+data['rating'] = data['rating'].map({'Offensive': 1, 'Not Offensive': 0})
+
+# Split dataset
+X_train, X_test, y_train, y_test = train_test_split(
+    data['comment'], data['rating'], test_size=0.2, random_state=42, stratify=data['rating']
+)
+
+# Embedding loaders
+def load_word2vec_embeddings(path):
+    return KeyedVectors.load_word2vec_format(path, binary=True)
+
+def load_fasttext_embeddings(path):
+    embeddings_index = {}
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            values = line.rstrip().split()
+            word = values[0]
+            embeddings_index[word] = np.asarray(values[1:], dtype='float32')
+    return embeddings_index
+
+# Create embedding matrix
+def create_embedding_matrix(tokenizer, embeddings_index, embedding_dim):
+    embedding_matrix = np.zeros((len(tokenizer.word_index) + 1, embedding_dim))
+    for word, i in tokenizer.word_index.items():
+        if word in embeddings_index:
+            embedding_matrix[i] = embeddings_index[word]
+    return embedding_matrix
+
+# Tokenizer and sequences
+max_len = 100
+tokenizer = tf.keras.preprocessing.text.Tokenizer()
+tokenizer.fit_on_texts(X_train)
+vocab_size = len(tokenizer.word_index) + 1
+
+X_train_seq = pad_sequences(tokenizer.texts_to_sequences(X_train), maxlen=max_len, padding='post')
+X_test_seq = pad_sequences(tokenizer.texts_to_sequences(X_test), maxlen=max_len, padding='post')
+
+# Define ML models
+ml_models = {
+    'Logistic Regression': LogisticRegression(max_iter=1000),
+    'Naïve Bayes': GaussianNB(),
+    'SVM (Linear)': SVC(kernel='linear'),
+    'Random Forest': RandomForestClassifier(random_state=42),
+    'K-Nearest Neighbors': KNeighborsClassifier(n_neighbors=5),
+    'Decision Tree': DecisionTreeClassifier(random_state=42),
+    'Gradient Boosting': GradientBoostingClassifier(random_state=42),
+    'AdaBoost': AdaBoostClassifier(random_state=42)
+}
+
+# Evaluate ML models with TF-IDF vectorization
+vectorizer = TfidfVectorizer(max_features=10000)
+X_train_vec = vectorizer.fit_transform(X_train)
+X_test_vec = vectorizer.transform(X_test)
+
+ml_results = []
+for name, model in ml_models.items():
+    if name == 'Naïve Bayes':
+        model.fit(X_train_vec.toarray(), y_train)
+        y_pred = model.predict(X_test_vec.toarray())
+    else:
+        model.fit(X_train_vec, y_train)
+        y_pred = model.predict(X_test_vec)
+
+    accuracy = accuracy_score(y_test, y_pred)
+    report = classification_report(y_test, y_pred, output_dict=True)
+    ml_results.append({
+        'Model': name,
+        'Accuracy': accuracy,
+        'F1-Score': report['weighted avg']['f1-score']
+    })
+
+ml_results_df = pd.DataFrame(ml_results)
+print(ml_results_df)
+
+# Load embeddings
+word2vec_path = 'word2vec.bin'
+fasttext_path = 'fasttext.vec'
+word2vec = load_word2vec_embeddings(word2vec_path)
+fasttext = load_fasttext_embeddings(fasttext_path)
+
+# Create embedding matrices
+word2vec_matrix = create_embedding_matrix(tokenizer, word2vec, 300)
+fasttext_matrix = create_embedding_matrix(tokenizer, fasttext, 300)
+
+# Define and train DL models
+def build_and_train_model(embedding_matrix, name):
+    model = Sequential([
+        Embedding(vocab_size, 300, weights=[embedding_matrix], input_length=max_len, trainable=False),
+        Bidirectional(LSTM(128, return_sequences=False)),
+        Dropout(0.5),
+        Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    model.fit(X_train_seq, y_train, batch_size=32, epochs=5, verbose=1, validation_data=(X_test_seq, y_test))
+    y_pred = (model.predict(X_test_seq) > 0.5).astype(int)
+    accuracy = accuracy_score(y_test, y_pred)
+    report = classification_report(y_test, y_pred, output_dict=True)
+    print(f"\n{name} Results:")
+    print(f"Accuracy: {accuracy:.2f}")
+    print(f"F1-Score: {report['weighted avg']['f1-score']:.2f}")
+
+# Train with Word2Vec and fastText embeddings
+build_and_train_model(word2vec_matrix, "Bi-LSTM with Word2Vec")
+build_and_train_model(fasttext_matrix, "Bi-LSTM with fastText")
+
+# Visualization
+ml_results_df.plot(kind='bar', x='Model', y='Accuracy', legend=False, title='ML Model Performance')
+plt.ylabel('Accuracy')
+plt.show()
